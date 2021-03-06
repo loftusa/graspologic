@@ -1,4 +1,3 @@
-# %%
 from graspologic.utils import import_graph, to_laplacian
 from graspologic.embed.base import BaseSpectralEmbed
 from graspologic.embed.svd import selectSVD
@@ -10,9 +9,9 @@ from graspologic.plot import heatmap
 from graspologic.utils import remap_labels
 from sklearn.preprocessing import normalize, scale
 
-np.set_printoptions(suppress=True)
+from scipy.optimize import golden
 
-#%%
+np.set_printoptions(suppress=True)
 
 
 class CovariateAssistedEmbedding(BaseSpectralEmbed):
@@ -158,7 +157,7 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
 
         # center and scale covariates to unit norm
         covariates = normalize(covariates, axis=0)
-        covariates = scale(covariates, axis=0, with_std=False)
+        # covariates = scale(covariates, axis=0, with_std=False)
 
         # save necessary params  # TODO: do this without saving potentially huge objects into `self`
         self._L = _to_reg_laplacian(A)
@@ -239,7 +238,6 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
             amax = L_top / X_eigvals[n_cov - 1] ** 2
 
         print(f"{amin=:.9f}, {amax=:.9f}")
-        print(f"alpha without tuning: {np.float(L_top / X_top)}")
 
         if self.alpha == -1:
             # just use the ratio of the leading eigenvalues for the
@@ -257,6 +255,7 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         # TODO: optimize... maybe with sklearn.metrics.make_scorer
         #       and a GridSearch?
         # added parallelization with joblib
+        # using golden section search now
         alpha_range = np.linspace(amin, amax, num=self.tuning_runs)
         inertia_trials = (
             delayed(_cluster)(alpha, LL=self._LL, XXt=self._XXt, n_clusters=n_clusters)
@@ -271,7 +270,21 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         #     self._cluster(alpha, n_clusters)
         #     inertias[a] = kmeans.inertia_
         alpha = min(inertias, key=inertias.get)
-        print(f"Best inertia at alpha={alpha:5f}: {inertias[alpha]:5f}")
+        alpha_golden = golden(
+            _cluster_golden,
+            args=(self._LL, self._XXt, n_clusters),
+            maxiter=self.tuning_runs,
+        )
+        # print(f"Best inertia at alpha={alpha:5f}: {inertias[alpha]:5f}")
+        print(
+            f"Best inertia at alpha={alpha:5f}: {_cluster_golden(alpha, self._LL, self._XXt, n_clusters):8f}"
+        )
+        print(
+            f"Best inertia at alpha_golden={alpha_golden:5f}: {_cluster_golden(alpha_golden, self._LL, self._XXt, n_clusters):8f}"
+        )
+        print(
+            f"alpha without tuning: {np.float(L_top / X_top)} with inertia {_cluster_golden(np.float(L_top/X_top), self._LL, self._XXt, n_clusters):8f}"
+        )
 
         # FOR DEBUGGING  # TODO: remove
         # kmeans = KMeans(n_clusters=self.n_components, n_jobs=-1)
@@ -282,6 +295,16 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         # )
 
         return alpha
+
+
+def _cluster_golden(alpha, LL, XXt, n_clusters):
+    latents = _embed(alpha, LL=LL, XXt=XXt, n_clusters=n_clusters)
+    kmeans = KMeans(
+        n_clusters=n_clusters, n_init=20
+    )  # TODO : dunno how computationally expensive having a higher-than-normal n_init is
+    kmeans.fit(latents)
+    print(f"inertia at {alpha:.5f}: {kmeans.inertia_:.5f}")
+    return kmeans.inertia_
 
 
 def _cluster(alpha, LL, XXt, *, n_clusters):
