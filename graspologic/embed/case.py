@@ -6,10 +6,11 @@ import scipy
 from joblib import delayed, Parallel
 from sklearn.cluster import KMeans
 from graspologic.plot import heatmap
-from graspologic.utils import remap_labels
+from graspologic.utils import to_laplacian, remap_labels
 from sklearn.preprocessing import normalize, scale
 
 from scipy.optimize import golden
+from scipy.linalg import eigvalsh
 
 np.set_printoptions(suppress=True)
 
@@ -50,10 +51,11 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
                          result in suboptimal clustering in exchange for increased
                          clustering speed.
 
-        tuning_runs : int, optional (default = 100)
-            If tuning alpha with k-means, this parameter determines the number of times
-            k-means is run. Higher values are more computationally expensive in exchange
-            for a finer-grained search of the parameter space (and better embedding).
+        tuning_runs : int, optional (default = 20)
+            If tuning alpha with k-means, this parameter determines the maximum number
+            of times k-means is run. Higher values are potentially more computationally
+            expensive in exchange for a finer-grained search of the parameter space (and
+            better embedding).
 
         n_jobs : int, optional (default = None)
             The number of parallel threads to use in K-means when calculating alpha.
@@ -87,7 +89,7 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         n_components=None,
         embedding_alg="assortative",
         alpha=None,
-        tuning_runs=20,  # TODO: this default is gonna take hella long on bigger matrices. also the one in R was 100
+        tuning_runs=20,
         n_jobs=None,
         verbose=0,
         n_elbows=2,
@@ -160,7 +162,7 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         # covariates = scale(covariates, axis=0, with_std=False)
 
         # save necessary params  # TODO: do this without saving potentially huge objects into `self`
-        self._L = _to_reg_laplacian(A)
+        self._L = to_laplacian(A, form="R-DAD")
         self._R = np.shape(covariates)[1]
         self._X = covariates.copy()
 
@@ -208,96 +210,48 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         alpha : float
             Tuning parameter which normalizes LL and XXt.
         """
-        # TODO: clean this code up if possible
         # setup
         if isinstance(self.alpha, (int, float)) and self.alpha != -1:
             return self.alpha
-        n_clusters = self.n_components  # number of clusters
-        n_cov = self._R  # number of covariates
-        LL = self._LL
-        XXt = self._XXt
-
-        # grab eigenvalues
-        # TODO: I'm sure there's a better way than selectSVD
-        _, D, _ = selectSVD(self._X, n_components=self._X.shape[1], algorithm="full")
-        X_eigvals = D[0 : np.min([n_cov, n_clusters]) + 1]
-        _, D, _ = selectSVD(
-            self._L, n_components=n_clusters + 1
-        )  # TODO: R code uses n_clusters+1, not sure why
-        L_eigvals = D[0 : n_clusters + 1]
-        if self.embedding_alg == "non-assortative":
-            L_eigvals = L_eigvals ** 2
-
-        # calculate bounds
-        L_top = L_eigvals[0]
-        X_top = X_eigvals[0]
-        amin = (L_eigvals[n_clusters - 1] - L_eigvals[n_clusters]) / X_top ** 2
-        if n_cov > n_clusters:
-            amax = L_top / (X_eigvals[n_clusters - 1] ** 2 - X_eigvals[n_clusters] ** 2)
-        else:
-            amax = L_top / X_eigvals[n_cov - 1] ** 2
-
-        print(f"{amin=:.9f}, {amax=:.9f}")
 
         if self.alpha == -1:
             # just use the ratio of the leading eigenvalues for the
             # tuning parameter, or the closest value in its possible range.
+            assert self._XXt.shape[0] == self._LL.shape[0]
+            N = self._XXt.shape[0]
+            L_top = _leading_eigval(self._LL)
+            X_top = _leading_eigval(self._XXt)
             alpha = np.float(L_top / X_top)
-            if amin <= alpha <= amax:
-                return alpha
-            elif alpha < amin:
-                return amin
-            elif alpha > amax:
-                return amax
+            return alpha
 
         # run kmeans clustering and set alpha to the value
         # which minimizes clustering intertia
-        # TODO: optimize... maybe with sklearn.metrics.make_scorer
-        #       and a GridSearch?
-        # added parallelization with joblib
-        # using golden section search now
-        alpha_range = np.linspace(amin, amax, num=self.tuning_runs)
-        inertia_trials = (
-            delayed(_cluster)(alpha, LL=self._LL, XXt=self._XXt, n_clusters=n_clusters)
-            for alpha in alpha_range
-        )
-        inertias = dict(
-            Parallel(n_jobs=self.n_jobs, verbose=self.verbose)(inertia_trials)
-        )
-        # TODO: query max cpu's, then -2
-        # or set as class param
-        # for a in alpha_range:
-        #     self._cluster(alpha, n_clusters)
-        #     inertias[a] = kmeans.inertia_
-        alpha = min(inertias, key=inertias.get)
-        alpha_golden = golden(
-            _cluster_golden,
-            args=(self._LL, self._XXt, n_clusters),
+        # using golden section search now because its way faster than
+        # the for-loop the R code was using and gets the same (actually better) results.
+        # don't need to calculate the tuning range with this method as well
+        alpha = golden(
+            _cluster,
+            args=(self._LL, self._XXt, self.n_components),
             maxiter=self.tuning_runs,
         )
-        # print(f"Best inertia at alpha={alpha:5f}: {inertias[alpha]:5f}")
-        print(
-            f"Best inertia at alpha={alpha:5f}: {_cluster_golden(alpha, self._LL, self._XXt, n_clusters):8f}"
-        )
-        print(
-            f"Best inertia at alpha_golden={alpha_golden:5f}: {_cluster_golden(alpha_golden, self._LL, self._XXt, n_clusters):8f}"
-        )
-        print(
-            f"alpha without tuning: {np.float(L_top / X_top)} with inertia {_cluster_golden(np.float(L_top/X_top), self._LL, self._XXt, n_clusters):8f}"
-        )
-
-        # FOR DEBUGGING  # TODO: remove
-        # kmeans = KMeans(n_clusters=self.n_components, n_jobs=-1)
-        # X_ = _embed(alpha=np.float(L_top / X_top), LL=self._LL, XXt=self._XXt)
-        # kmeans.fit(X_)
-        # print(
-        #     f"inertia at default alpha {np.float(L_top/X_top):.5f}: {kmeans.inertia_:.5f}"
-        # )
-
         return alpha
 
 
-def _cluster_golden(alpha, LL, XXt, n_clusters):
+def _leading_eigval(M):
+    """
+    Get the leading eigenvalue of A.
+
+    Parameters
+    ----------
+    A : np.ndarray
+        Matrix. Must be real and symmetric.
+    """
+    N = M.shape[0]
+    (leading,) = eigvalsh(M, eigvals_only=True, subset_by_index=[N - 1, N - 1])
+    return leading
+
+
+def _cluster(alpha, LL, XXt, n_clusters):
     latents = _embed(alpha, LL=LL, XXt=XXt, n_clusters=n_clusters)
     kmeans = KMeans(
         n_clusters=n_clusters, n_init=20
@@ -307,28 +261,8 @@ def _cluster_golden(alpha, LL, XXt, n_clusters):
     return kmeans.inertia_
 
 
-def _cluster(alpha, LL, XXt, *, n_clusters):
-    latents = _embed(alpha, LL=LL, XXt=XXt, n_clusters=n_clusters)
-    kmeans = KMeans(
-        n_clusters=n_clusters, n_init=20
-    )  # TODO : dunno how computationally expensive having a higher-than-normal n_init is
-    kmeans.fit(latents)
-    print(f"inertia at {alpha:.5f}: {kmeans.inertia_:.5f}")
-    return alpha, kmeans.inertia_
-
-
 def _embed(alpha, LL, XXt, *, n_clusters):
     L_ = LL + alpha * (XXt)
     latents, _, _ = scipy.linalg.svd(L_)
     latents = latents[:, :n_clusters]
     return latents
-
-
-def _to_reg_laplacian(A):
-    # TODO: this is the version of the Laplacian that they used in the paper. Using
-    # utils.to_laplacian(form="R-DAD") produces a slightly different matrix. Need to
-    # figure out disregularity to avoid defining functions I don't need to
-    row_sums = np.sum(A, axis=1)
-    tau = np.mean(row_sums)
-    norm_mat = np.diag(1 / np.sqrt(row_sums + tau))
-    return norm_mat @ A @ norm_mat
