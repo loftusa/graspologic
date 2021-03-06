@@ -1,18 +1,13 @@
+import numpy as np
+import scipy
+from scipy.optimize import golden
+from scipy.linalg import eigvalsh
+from sklearn.cluster import KMeans
+from sklearn.preprocessing import normalize
+from graspologic.utils import to_laplacian
 from graspologic.utils import import_graph, to_laplacian
 from graspologic.embed.base import BaseSpectralEmbed
 from graspologic.embed.svd import selectSVD
-import numpy as np
-import scipy
-from joblib import delayed, Parallel
-from sklearn.cluster import KMeans
-from graspologic.plot import heatmap
-from graspologic.utils import to_laplacian, remap_labels
-from sklearn.preprocessing import normalize, scale
-
-from scipy.optimize import golden
-from scipy.linalg import eigvalsh
-
-np.set_printoptions(suppress=True)
 
 
 class CovariateAssistedEmbedding(BaseSpectralEmbed):
@@ -159,12 +154,11 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
 
         # center and scale covariates to unit norm
         covariates = normalize(covariates, axis=0)
-        # covariates = scale(covariates, axis=0, with_std=False)
 
         # save necessary params  # TODO: do this without saving potentially huge objects into `self`
         self._L = to_laplacian(A, form="R-DAD")
-        self._R = np.shape(covariates)[1]
         self._X = covariates.copy()
+        self._n_cov = np.shape(covariates)[1]
 
         # change params based on tuning algorithm
         if self.embedding_alg == "cca":
@@ -184,13 +178,6 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
             self.alpha_, self._LL, self._XXt, n_clusters=self.n_components
         )
         self.is_fitted_ = True
-        # # FOR DEBUGGING  # TODO: remove
-        # kmeans = KMeans(n_clusters=3)
-        # labels_ = kmeans.fit_predict(self.latent_left_)
-        # labels_ = remap_labels(labels, labels_)
-        # print(f"misclustering: {np.count_nonzero(labels - labels_) / len(labels)}")
-
-        # FOR DEBUGGING
         return self
 
     def _get_tuning_parameter(self):
@@ -214,41 +201,44 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         if isinstance(self.alpha, (int, float)) and self.alpha != -1:
             return self.alpha
 
+        # Grab eigenvalues of X and L in descending order
+        N = self._XXt.shape[0]
+        assert N == self._LL.shape[0]
+        n_eigvals_X = np.min([self._n_cov, self.n_components]) + 1
+        X_eigvals = _eigvals(self._XXt, n_eigvals=n_eigvals_X)
+        L_eigvals = _eigvals(self._LL, n_eigvals=self.n_components + 1)
+        L_top = L_eigvals[0]
+        X_top = X_eigvals[0]
         if self.alpha == -1:
             # just use the ratio of the leading eigenvalues for the
             # tuning parameter, or the closest value in its possible range.
-            assert self._XXt.shape[0] == self._LL.shape[0]
-            N = self._XXt.shape[0]
-            L_top = _leading_eigval(self._LL)
-            X_top = _leading_eigval(self._XXt)
             alpha = np.float(L_top / X_top)
             return alpha
 
-        # run kmeans clustering and set alpha to the value
-        # which minimizes clustering intertia
-        # using golden section search now because its way faster than
-        # the for-loop the R code was using and gets the same (actually better) results.
-        # don't need to calculate the tuning range with this method as well
+        amin = (L_eigvals[self.n_components - 1] - L_eigvals[self.n_components]) / X_top
+        if self._n_cov > self.n_components:
+            amax = L_top / (
+                X_eigvals[self.n_components - 1] - X_eigvals[self.n_components]
+            )
+        else:
+            amax = L_top / X_eigvals[self._n_cov - 1]
+
+        # run kmeans clustering and set alpha to the value which minimizes clustering
+        # intertia. Using golden section search now because its way faster than the
+        # for-loop the R code was using and gets better results.
         alpha = golden(
             _cluster,
             args=(self._LL, self._XXt, self.n_components),
             maxiter=self.tuning_runs,
+            brack=[amin, amax],
         )
         return alpha
 
 
-def _leading_eigval(M):
-    """
-    Get the leading eigenvalue of A.
-
-    Parameters
-    ----------
-    A : np.ndarray
-        Matrix. Must be real and symmetric.
-    """
+def _eigvals(M, n_eigvals=1):
     N = M.shape[0]
-    (leading,) = eigvalsh(M, eigvals_only=True, subset_by_index=[N - 1, N - 1])
-    return leading
+    top_eigvals = eigvalsh(M, subset_by_index=[N - n_eigvals, N - 1])
+    return np.flip(top_eigvals)
 
 
 def _cluster(alpha, LL, XXt, n_clusters):
