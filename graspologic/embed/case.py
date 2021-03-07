@@ -216,7 +216,7 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         #     return alpha
 
         n_clusters = self.n_components  # number of clusters
-        n_cov = self._n_cov # number of covariates
+        n_cov = self._n_cov  # number of covariates
 
         # grab eigenvalues
         # TODO: I'm sure there's a better way than selectSVD
@@ -252,6 +252,7 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
             _cluster,
             args=(self._LL, self._XXt, self.n_components),
             maxiter=self.tuning_runs,
+            brack=[amin, amax],
         )
         # alpha = golden(
         #     _cluster,
