@@ -202,26 +202,48 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
             return self.alpha
 
         # Grab eigenvalues of X and L in descending order
-        N = self._XXt.shape[0]
-        assert N == self._LL.shape[0]
-        n_eigvals_X = np.min([self._n_cov, self.n_components]) + 1
-        X_eigvals = _eigvals(self._XXt, n_eigvals=n_eigvals_X)
-        L_eigvals = _eigvals(self._LL, n_eigvals=self.n_components + 1)
+        # N = self._XXt.shape[0]
+        # assert N == self._LL.shape[0]
+        # n_eigvals_X = np.min([self._n_cov, self.n_components]) + 1
+        # X_eigvals = _eigvals(self._XXt, n_eigvals=n_eigvals_X)
+        # L_eigvals = _eigvals(self._LL, n_eigvals=self.n_components + 1)
+        # L_top = L_eigvals[0]
+        # X_top = X_eigvals[0]
+        # if self.alpha == -1:
+        #     # just use the ratio of the leading eigenvalues for the
+        #     # tuning parameter, or the closest value in its possible range.
+        #     alpha = np.float(L_top / X_top)
+        #     return alpha
+
+        n_clusters = self.n_components  # number of clusters
+        n_cov = self._n_cov # number of covariates
+
+        # grab eigenvalues
+        # TODO: I'm sure there's a better way than selectSVD
+        _, D, _ = selectSVD(self._X, n_components=self._X.shape[1], algorithm="full")
+        X_eigvals = D[0 : np.min([n_cov, n_clusters]) + 1]
+        _, D, _ = selectSVD(
+            self._L, n_components=n_clusters + 1
+        )  # TODO: R code uses n_clusters+1, not sure why
+        L_eigvals = D[0 : n_clusters + 1]
+        if self.embedding_alg == "non-assortative":
+            L_eigvals = L_eigvals ** 2
+
+        # calculate bounds
         L_top = L_eigvals[0]
         X_top = X_eigvals[0]
-        if self.alpha == -1:
-            # just use the ratio of the leading eigenvalues for the
-            # tuning parameter, or the closest value in its possible range.
-            alpha = np.float(L_top / X_top)
-            return alpha
-
-        amin = (L_eigvals[self.n_components - 1] - L_eigvals[self.n_components]) / X_top
-        if self._n_cov > self.n_components:
-            amax = L_top / (
-                X_eigvals[self.n_components - 1] - X_eigvals[self.n_components]
-            )
+        amin = (L_eigvals[n_clusters - 1] - L_eigvals[n_clusters]) / X_top ** 2
+        if n_cov > n_clusters:
+            amax = L_top / (X_eigvals[n_clusters - 1] ** 2 - X_eigvals[n_clusters] ** 2)
         else:
-            amax = L_top / X_eigvals[self._n_cov - 1]
+            amax = L_top / X_eigvals[n_cov - 1] ** 2
+        # amin = (L_eigvals[self.n_components - 1] - L_eigvals[self.n_components]) / X_top
+        # if self._n_cov > self.n_components:
+        #     amax = L_top / (
+        #         X_eigvals[self.n_components - 1] - X_eigvals[self.n_components]
+        #     )
+        # else:
+        #     amax = L_top / X_eigvals[self._n_cov - 1]
 
         # run kmeans clustering and set alpha to the value which minimizes clustering
         # intertia. Using golden section search now because its way faster than the
@@ -230,8 +252,13 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
             _cluster,
             args=(self._LL, self._XXt, self.n_components),
             maxiter=self.tuning_runs,
-            brack=[amin, amax],
         )
+        # alpha = golden(
+        #     _cluster,
+        #     args=(self._LL, self._XXt, self.n_components),
+        #     maxiter=self.tuning_runs,
+        #     brack=[amin, amax],
+        # )
         return alpha
 
 
