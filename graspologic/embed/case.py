@@ -248,13 +248,14 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         # run kmeans clustering and set alpha to the value which minimizes clustering
         # intertia. Using golden section search now because its way faster than the
         # for-loop the R code was using and gets better results.
-        alpha = minimize_scalar(
+        optimization = minimize_scalar(
             _cluster,
             args=(self._LL, self._XXt, self.n_components),
             method="Bounded",
             bounds=[amin, amax],
             options=dict(maxiter=self.tuning_runs, disp=True),
         )
+        alpha = optimization.x
         # alpha = golden(
         #     _cluster,
         #     args=(self._LL, self._XXt, self.n_components),
