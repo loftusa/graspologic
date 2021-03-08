@@ -8,6 +8,7 @@ from graspologic.utils import to_laplacian
 from graspologic.utils import import_graph, to_laplacian
 from graspologic.embed.base import BaseSpectralEmbed
 from graspologic.embed.svd import selectSVD
+from joblib import Parallel, delayed
 
 
 class CovariateAssistedEmbedding(BaseSpectralEmbed):
@@ -248,6 +249,7 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         # run kmeans clustering and set alpha to the value which minimizes clustering
         # intertia. Using golden section search now because its way faster than the
         # for-loop the R code was using and gets better results.
+        # print("Using Brent's Algorithm")
         # optimization = minimize_scalar(
         #     _cluster,
         #     args=(self._LL, self._XXt, self.n_components),
@@ -256,13 +258,25 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         #     options=dict(maxiter=self.tuning_runs, disp=True),
         # )
         # alpha = optimization.x
-        print("Using golden section search")
-        alpha = golden(
-            _cluster,
-            args=(self._LL, self._XXt, self.n_components),
-            maxiter=self.tuning_runs,
-            brack=[amin, amax],
+        # print("Using golden section search")
+        # alpha = golden(
+        #     _cluster,
+        #     args=(self._LL, self._XXt, self.n_components),
+        #     maxiter=self.tuning_runs,
+        #     brack=[amin, amax],
+        # )
+        alpha_range = np.linspace(amin, amax, num=self.tuning_runs)
+        inertia_trials = (
+            delayed(_cluster)(alpha, LL=self._LL, XXt=self._XXt, n_clusters=n_clusters)
+            for alpha in alpha_range
         )
+        inertias = dict(
+            Parallel(n_jobs=self.n_jobs, prefer="threads", verbose=self.verbose)(
+                inertia_trials
+            )
+        )
+        alpha = min(inertias, key=inertias.get)
+        print(f"Best inertia at alpha={alpha:5f}: {inertias[alpha]:5f}")
         return alpha
 
 
@@ -279,7 +293,7 @@ def _cluster(alpha, LL, XXt, n_clusters):
     )  # TODO : dunno how computationally expensive having a higher-than-normal n_init is
     kmeans.fit(latents)
     print(f"inertia at {alpha:.5f}: {kmeans.inertia_:.5f}")
-    return kmeans.inertia_
+    return alpha, kmeans.inertia_
 
 
 def _embed(alpha, LL, XXt, *, n_clusters):
