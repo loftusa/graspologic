@@ -1,6 +1,6 @@
 import numpy as np
 import scipy
-from scipy.optimize import minimize_scalar
+from scipy.optimize import minimize_scalar, golden
 from scipy.linalg import eigvalsh
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import normalize
@@ -248,20 +248,21 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         # run kmeans clustering and set alpha to the value which minimizes clustering
         # intertia. Using golden section search now because its way faster than the
         # for-loop the R code was using and gets better results.
-        optimization = minimize_scalar(
-            _cluster,
-            args=(self._LL, self._XXt, self.n_components),
-            method="Bounded",
-            bounds=[amin, amax],
-            options=dict(maxiter=self.tuning_runs, disp=True),
-        )
-        alpha = optimization.x
-        # alpha = golden(
+        # optimization = minimize_scalar(
         #     _cluster,
         #     args=(self._LL, self._XXt, self.n_components),
-        #     maxiter=self.tuning_runs,
-        #     brack=[amin, amax],
+        #     method="Bounded",
+        #     bounds=[amin, amax],
+        #     options=dict(maxiter=self.tuning_runs, disp=True),
         # )
+        # alpha = optimization.x
+        print("Using golden section search")
+        alpha = golden(
+            _cluster,
+            args=(self._LL, self._XXt, self.n_components),
+            maxiter=self.tuning_runs,
+            brack=[amin, amax],
+        )
         return alpha
 
 
