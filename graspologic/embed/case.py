@@ -86,7 +86,7 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
         embedding_alg="assortative",
         alpha=None,
         tuning_runs=20,
-        n_jobs=None,
+        n_jobs=-1,
         verbose=0,
         n_elbows=2,
         check_lcc=False,
@@ -100,6 +100,8 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
             concat=concat,
         )
 
+        if not isinstance(embedding_alg, str):
+            raise TypeError("Embedding algorithm must be a string")
         if embedding_alg not in {"assortative", "non-assortative", "cca"}:
             msg = "embedding_alg must be in {assortative, non-assortative, cca}."
             raise ValueError(msg)
@@ -221,7 +223,7 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
 
         # grab eigenvalues
         # TODO: I'm sure there's a better way than selectSVD
-        _, D, _ = selectSVD(self._X, n_components=self._X.shape[1], algorithm="full")
+        _, D, _ = selectSVD(self._X, n_components=n_clusters + 1, algorithm="full")
         X_eigvals = D[0 : np.min([n_cov, n_clusters]) + 1]
         _, D, _ = selectSVD(
             self._L, n_components=n_clusters + 1
@@ -270,13 +272,13 @@ class CovariateAssistedEmbedding(BaseSpectralEmbed):
             delayed(_cluster)(alpha, LL=self._LL, XXt=self._XXt, n_clusters=n_clusters)
             for alpha in alpha_range
         )
-        inertias = dict(
+        self.inertias_ = dict(
             Parallel(n_jobs=self.n_jobs, prefer="threads", verbose=self.verbose)(
                 inertia_trials
             )
         )
-        alpha = min(inertias, key=inertias.get)
-        print(f"Best inertia at alpha={alpha:5f}: {inertias[alpha]:5f}")
+        alpha = min(self.inertias_, key=self.inertias_.get)
+        print(f"Best inertia at alpha={alpha:5f}: {self.inertias_[alpha]:5f}")
         return alpha
 
 
