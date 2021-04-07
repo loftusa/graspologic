@@ -5,6 +5,7 @@ from abc import abstractmethod
 
 import numpy as np
 from sklearn.base import BaseEstimator
+from sklearn import preprocessing
 
 from ..utils import augment_diagonal, import_graph, is_almost_symmetric
 from .svd import selectSVD
@@ -21,12 +22,13 @@ class BaseSpectralEmbed(BaseEstimator):
         n_components must be <= min(X.shape). Otherwise, n_components must be
         < min(X.shape). If None, then optimal dimensions will be chosen by
         ``select_dimension`` using ``n_elbows`` argument.
+
     n_elbows : int, optional, default: 2
-        If `n_compoents=None`, then compute the optimal embedding dimension using
+        If `n_components=None`, then compute the optimal embedding dimension using
         `select_dimension`. Otherwise, ignored.
+
     algorithm : {'full', 'truncated' (default), 'randomized'}, optional
         SVD solver to use:
-
         - 'full'
             Computes full svd using ``scipy.linalg.svd``
         - 'truncated'
@@ -34,17 +36,20 @@ class BaseSpectralEmbed(BaseEstimator):
         - 'randomized'
             Computes randomized svd using
             ``sklearn.utils.extmath.randomized_svd``
+
     n_iter : int, optional (default = 5)
         Number of iterations for randomized SVD solver. Not used by 'full' or
         'truncated'. The default is larger than the default in randomized_svd
         to handle sparse matrices that may have large slowly decaying spectrum.
+
     check_lcc : bool , optional (defult =True)
         Whether to check if input graph is connected. May result in non-optimal
         results if the graph is unconnected. Not checking for connectedness may
         result in faster computation.
+
     concat : bool, optional (default = False)
-        If graph(s) are directed, whether to concatenate each graph's left and right (out and in) latent positions
-        along axis 1.
+        If graph(s) are directed, whether to concatenate each graph's left and right
+        (out and in) latent positions along axis 1.
 
     Attributes
     ----------
@@ -95,10 +100,11 @@ class BaseSpectralEmbed(BaseEstimator):
             n_iter=self.n_iter,
         )
 
+        square = A.shape[0] == A.shape[1]
         self.n_components_ = D.size
         self.singular_values_ = D
         self.latent_left_ = U @ np.diag(np.sqrt(D))
-        if not is_almost_symmetric(A):
+        if square and not is_almost_symmetric(A):
             self.latent_right_ = V.T @ np.diag(np.sqrt(D))
         else:
             self.latent_right_ = None
@@ -135,9 +141,10 @@ class BaseSpectralEmbed(BaseEstimator):
 
         return self
 
-    def _fit_transform(self, graph):
+    def _fit_transform(self, graph=None, *args, **kwargs):
         "Fits the model and returns the estimated latent positions."
-        self.fit(graph)
+
+        self.fit(graph, *args, **kwargs)
 
         if self.latent_right_ is None:
             return self.latent_left_
@@ -147,7 +154,7 @@ class BaseSpectralEmbed(BaseEstimator):
             else:
                 return self.latent_left_, self.latent_right_
 
-    def fit_transform(self, graph, y=None):
+    def fit_transform(self, graph, y=None, *args, **kwargs):
         """
         Fit the model with graphs and apply the transformation.
 
@@ -165,7 +172,7 @@ class BaseSpectralEmbed(BaseEstimator):
             If directed, ``concat`` is True then concatenate latent matrices on axis 1, shape(n_vertices, 2*n_components).
             If directed, ``concat`` is False then tuple of the latent matrices. Each of shape (n_vertices, n_components).
         """
-        return self._fit_transform(graph)
+        return self._fit_transform(graph, *args, **kwargs)
 
 
 class BaseEmbedMulti(BaseSpectralEmbed):
