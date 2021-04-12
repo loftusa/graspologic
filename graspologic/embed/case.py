@@ -1,6 +1,6 @@
 import numpy as np
-from scipy.sparse.linalg import eigsh
-from sklearn.preprocessing import normalize
+from scipy.sparse.linalg import LinearOperator, eigsh
+from sklearn.preprocessing import normalize, scale
 
 from graspologic.utils import import_graph, to_laplacian, is_almost_symmetric
 from graspologic.embed.base import BaseSpectralEmbed
@@ -17,16 +17,18 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
     Parameters
     ----------
     alpha : float, optional, default = None
-        Tuning parameter to use. Not used if embedding_alg == cca:
+        Tuning parameter to use:
             -  None: Default to the ratio of the leading eigenvector of the Laplacian
                      to the leading eigenvector of the covariate matrix.
             - float: Use a particular alpha-value.
 
-    embedding_alg : str, default = "assortative"
-        Embedding algorithm to use (with L the regularized Laplacian, and Y the
-        covariate matrix:
-        - "assortative": Embed ``L + a*Y@Y.T``. Better for assortative graphs.
-        - "non-assortative": Embed ``L@L + a*Y@Y.T``. Better for non-assortative graphs.
+    assortative : bool, default = True
+        Embedding algorithm to use. An assortative network is any network where the
+        within-group probabilities are greater than the between-group probabilities.
+        Here, L is the regularized Laplacian, Y is the covariate matrix, and a is the
+        tuning parameter alpha:
+            - True: Embed ``L + a*Y@Y.T``. Better for assortative graphs.
+            - False: Embed ``L@L + a*Y@Y.T``. Better for non-assortative graphs.
 
     n_components : int or None, default = None
         Desired dimensionality of output data. If "full",
@@ -44,7 +46,6 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         result in faster computation.
 
 
-
     References
     ---------
     .. [1] Binkiewicz, N., Vogelstein, J. T., & Rohe, K. (2017). Covariate-assisted
@@ -54,7 +55,7 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
     def __init__(
         self,
         alpha=None,
-        embedding_alg="assortative",
+        assortative=True,
         n_components=None,
         n_elbows=2,
         check_lcc=False,
@@ -64,12 +65,13 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
             n_elbows=n_elbows,
             check_lcc=check_lcc,
             concat=False,
+            algorithm="square",
         )
 
-        if embedding_alg not in {"assortative", "non-assortative"}:
-            msg = "embedding_alg must be in {assortative, non-assortative}."
+        if not isinstance(assortative, bool):
+            msg = "embedding_alg must be a boolean value."
             raise ValueError(msg)
-        self.embedding_alg = embedding_alg
+        self.assortative = assortative
 
         if not ((alpha is None) or isinstance(alpha, (float, int))):
             msg = "alpha must be in {None, float, int}."
@@ -90,6 +92,8 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         where :math:`\alpha` is a tuning parameter which makes the leading eigenvalues
         of the two summands the same. Here, :math:`L` is the regularized
         graph Laplacian, and :math:`Y` is a matrix of covariates for each node.
+
+        Covariates are row-normalized to unit l2-norm.
 
         Parameters
         ----------
@@ -123,29 +127,26 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
 
         graph, covariates = network
         A = import_graph(graph)
-        if A.shape[0] != A.shape[1]:
+        n = A.shape[0]
+        if n != A.shape[1]:
             raise ValueError("Graph should be square")
-        if not is_almost_symmetric(A):
-            raise ValueError("Fit an undirected graph")
+        # if not is_almost_symmetric(A):
+        #     raise ValueError("Fit an undirected graph")
 
         # Create regularized Laplacian, scale covariates to unit norm
         L = to_laplacian(A, form="R-DAD")
-        Y = covariates.copy()
+        Y = covariates
         if Y.ndim == 1:
             Y = Y[:, np.newaxis]
         Y = normalize(Y, axis=0)
 
-        # change params based on tuning algorithm
-        if self.embedding_alg == "assortative":
-            LL = L.copy()
-            YYt = Y @ Y.T
-        elif self.embedding_alg == "non-assortative":
-            LL = L @ L
-            YYt = Y @ Y.T
+        # Use ratio of the two leading eigenvalues
+        # if alpha is None
+        self._get_tuning_parameter(L, Y)
 
-        # Get weight and create embedding matrix
-        self._get_tuning_parameter(LL, YYt)
-        L_ = (LL + self.alpha_ * (YYt)).astype(float)
+        # get embedding matrix as a LinearOperator (for computational efficiency)
+        mv, rmv = self._matvec(L, Y, a=self.alpha_, assortative=self.assortative)
+        L_ = LinearOperator((n, n), matvec=mv, rmatvec=rmv)
 
         # Dimensionality reduction with SVD
         self._reduce_dim(L_)
@@ -153,17 +154,16 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         self.is_fitted_ = True
         return self
 
-    def _get_tuning_parameter(self, LL, YYt):
+    def _get_tuning_parameter(self, L, Y):
         """
         Find the alpha which causes the leading eigenspace of LL and YYt to be the same.
 
         Parameters
         ----------
-        LL : array
-            The regularized graph Laplacian (assortative)
-            The squared regularized graph Laplacian (non-assortative)
-        YYt : array
-            Y@Y.T, where Y is the covariate matrix.
+        L : array
+            The regularized graph Laplacian.
+        Y : array
+            The covariate matrix.
 
         Returns
         -------
@@ -175,12 +175,28 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
             self.alpha_ = self.alpha
             return self
 
-        # calculate bounds
-        (L_top,) = eigsh(LL, return_eigenvectors=False, k=1)
-        (Y_top,) = eigsh(YYt, return_eigenvectors=False, k=1)
+        # Laplacian leading eigenvector
+        (L_top,) = eigsh(L, return_eigenvectors=False, k=1)
+        if self.assortative:
+            L_top **= 2
+
+        # YY^T leading eigenvector
+        n = Y.shape[0]
+        YO = LinearOperator((n, n), matvec=lambda v: Y @ (Y.T @ v))
+        (YYt_top,) = eigsh(YO, return_eigenvectors=False, k=1)
 
         # just use the ratio of the leading eigenvalues for the
         # tuning parameter, or the closest value in its possible range.
-        self.alpha_ = np.float(L_top / Y_top)
+        self.alpha_ = np.float(L_top / YYt_top)
 
         return self
+
+    @staticmethod
+    def _matvec(L, Y, a=None, assortative=True):
+        if assortative:
+            mv = lambda v: (L @ v) + a * (Y @ (Y.T @ v))
+            rmv = lambda v: (v.T @ L) + a * ((v.T @ Y) @ Y.T)
+        else:
+            mv = lambda v: (L @ (L @ v)) + a * (Y @ (Y.T @ v))
+            rmv = lambda v: (v.T @ L) @ L + a * ((v.T @ Y) @ Y.T)
+        return mv, rmv

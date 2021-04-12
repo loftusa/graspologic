@@ -4,6 +4,7 @@
 from abc import abstractmethod
 
 import numpy as np
+from scipy.sparse.linalg import LinearOperator
 from sklearn.base import BaseEstimator
 from sklearn import preprocessing
 
@@ -100,11 +101,10 @@ class BaseSpectralEmbed(BaseEstimator):
             n_iter=self.n_iter,
         )
 
-        square = A.shape[0] == A.shape[1]
         self.n_components_ = D.size
         self.singular_values_ = D
         self.latent_left_ = U @ np.diag(np.sqrt(D))
-        if square and not is_almost_symmetric(A):
+        if not is_almost_symmetric(A):
             self.latent_right_ = V.T @ np.diag(np.sqrt(D))
         else:
             self.latent_right_ = None
@@ -141,10 +141,10 @@ class BaseSpectralEmbed(BaseEstimator):
 
         return self
 
-    def _fit_transform(self, graph=None, *args, **kwargs):
+    def _fit_transform(self, graph=None):
         "Fits the model and returns the estimated latent positions."
 
-        self.fit(graph, *args, **kwargs)
+        self.fit(graph)
 
         if self.latent_right_ is None:
             return self.latent_left_
@@ -154,7 +154,7 @@ class BaseSpectralEmbed(BaseEstimator):
             else:
                 return self.latent_left_, self.latent_right_
 
-    def fit_transform(self, graph, y=None, *args, **kwargs):
+    def fit_transform(self, graph, y=None):
         """
         Fit the model with graphs and apply the transformation.
 
@@ -172,7 +172,7 @@ class BaseSpectralEmbed(BaseEstimator):
             If directed, ``concat`` is True then concatenate latent matrices on axis 1, shape(n_vertices, 2*n_components).
             If directed, ``concat`` is False then tuple of the latent matrices. Each of shape (n_vertices, n_components).
         """
-        return self._fit_transform(graph, *args, **kwargs)
+        return self._fit_transform(graph)
 
 
 class BaseEmbedMulti(BaseSpectralEmbed):

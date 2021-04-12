@@ -1,6 +1,7 @@
 import pytest
 from pytest import mark
 import numpy as np
+from scipy.stats import beta
 from sklearn.mixture import GaussianMixture
 from graspologic.embed.case import CovariateAssistedEmbed as CASE
 from graspologic.simulations import sbm
@@ -59,10 +60,10 @@ def X(request, M):
     return gen_covariates(m1, m2, labels, type=request.param)
 
 
-@pytest.fixture(params=["assortative", "non-assortative"])
+@pytest.fixture(params=[True, False])
 def case(request, M, X):
     A, _ = M
-    case = CASE(n_components=2, embedding_alg=request.param)
+    case = CASE(n_components=2, assortative=request.param)
     case.fit((A, X))
     return case
 
@@ -78,11 +79,11 @@ def labels(M):
 
 
 # TESTS
-@pytest.mark.parametrize("alg", ["assortative", "non-assortative"])
+@pytest.mark.parametrize("alg", [True, False])
 def test_custom_alpha(M, X, alg):
     A, _ = M
     a = 0.1
-    case = CASE(n_components=2, embedding_alg=alg, alpha=a)
+    case = CASE(n_components=2, assortative=alg, alpha=a)
     latents = case.fit_transform((A, X))
     # just check to make sure we can run with custom alpha
 
@@ -106,7 +107,7 @@ def test_wrong_inputs(A, X):
 
     with pytest.raises(ValueError):
         "wrong assortative type"
-        CASE(embedding_alg=1)
+        CASE(assortative="1")
 
     with pytest.raises(ValueError):
         A_ = np.arange(30).reshape(10, 3)
@@ -133,6 +134,39 @@ def test_labels_match_clustering(case, labels):
     assert np.array_equal(predicted_labels, labels) or np.array_equal(
         1 - predicted_labels, labels
     )
+
+
+def make_community(a, b, n=500):
+    return beta.rvs(a, b, size=(n, 30))
+
+
+def gen_covariates_beta(n=500):
+    c1 = make_community(2, 5, n=n)
+    c2 = make_community(2, 2, n=n)
+    c3 = make_community(2, 2, n=n)
+
+    covariates = np.vstack((c1, c2, c3))
+    return covariates
+
+
+# Generate a covariate matrix
+
+
+@pytest.mark.parametrize("assortative", (True, False))
+def test_no_nans(assortative):
+    # this generated a matrix with nan values before
+
+    Y = gen_covariates_beta()
+    N = 1500  # Total number of nodes
+    n = N // 3
+    p, q = 0.15, 0.3
+    B = np.array([[p, p, q], [p, p, q], [q, q, p]])
+    A = sbm([n, n, n], B)
+
+    # embed and plot
+    case = CASE(assortative=assortative, n_components=2)
+    latents = case.fit_transform((A, Y))
+    assert np.isfinite(latents).all()
 
 
 class TestGenCovariates:
