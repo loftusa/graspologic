@@ -5,6 +5,7 @@ import warnings
 import numpy as np
 from sklearn.utils.validation import check_is_fitted
 import networkx as nx
+from typing import Union, Tuple
 
 from .base import BaseSpectralEmbed
 from ..utils import (
@@ -180,7 +181,9 @@ class AdjacencySpectralEmbed(BaseSpectralEmbed):
         self.is_fitted_ = True
         return self
 
-    def transform(self, X):
+    def transform(
+        self, X: Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]
+    ) -> Union[np.ndarray, Tuple[np.ndarray, np.ndarray]]:
         """
         Obtain latent positions from an adjacency matrix or matrix of out-of-sample
         vertices. For more details on transforming out-of-sample vertices, see the
