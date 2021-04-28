@@ -1,6 +1,7 @@
 import numpy as np
 from scipy.sparse.linalg import LinearOperator, eigsh
 from sklearn.preprocessing import normalize, scale
+from typing import Tuple, Callable, Optional
 
 from graspologic.utils import import_graph, to_laplacian, is_almost_symmetric
 from graspologic.embed.base import BaseSpectralEmbed
@@ -8,11 +9,12 @@ from graspologic.embed.base import BaseSpectralEmbed
 
 class CovariateAssistedEmbed(BaseSpectralEmbed):
     """
-    Perform Spectral Embedding on a graph with covariates, using the regularized graph Laplacian.
+    Perform Spectral Embedding on a graph with covariates for each node, using the
+    regularized graph Laplacian.
 
     The Covariate-Assisted Spectral Embedding is a k-dimensional Euclidean representation
-    of a graph based on a function of its Laplacian and a vector of covariate features
-    for each node. For more information, see [1].
+    of a graph. It returns an n x d matrix, similarly to Adjacency Spectral Embedding or
+    Laplacian Spectral Embedding. For more information, see [1].
 
     Parameters
     ----------
@@ -54,18 +56,18 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
 
     def __init__(
         self,
-        alpha=None,
-        assortative=True,
-        n_components=None,
-        n_elbows=2,
-        check_lcc=False,
+        alpha: Optional[float] = None,
+        assortative: bool = True,
+        n_components: Optional[int] = None,
+        n_elbows: int = 2,
+        check_lcc: bool = False,
     ):
         super().__init__(
             n_components=n_components,
             n_elbows=n_elbows,
             check_lcc=check_lcc,
             concat=False,
-            algorithm="square",
+            algorithm="eigsh",
         )
 
         if not isinstance(assortative, bool):
@@ -81,7 +83,7 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         self.latent_right_ = None
         self.is_fitted_ = False
 
-    def fit(self, network, y=None):
+    def fit(self, network: Tuple[np.ndarray, np.ndarray], y: None = None) -> "CovariateAssistedEmbed":
         """
         Fit a CASE model to an input graph, along with its covariates. Depending on the
         embedding algorithm, we embed
@@ -127,11 +129,6 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
 
         graph, covariates = network
         A = import_graph(graph)
-        n = A.shape[0]
-        if n != A.shape[1]:
-            raise ValueError("Graph should be square")
-        # if not is_almost_symmetric(A):
-        #     raise ValueError("Fit an undirected graph")
 
         # Create regularized Laplacian, scale covariates to unit norm
         L = to_laplacian(A, form="R-DAD")
@@ -140,11 +137,11 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
             Y = Y[:, np.newaxis]
         Y = normalize(Y, axis=0)
 
-        # Use ratio of the two leading eigenvalues
-        # if alpha is None
+        # Use ratio of the two leading eigenvalues if alpha is None
         self._get_tuning_parameter(L, Y)
 
         # get embedding matrix as a LinearOperator (for computational efficiency)
+        n = A.shape[0]
         mv, rmv = self._matvec(L, Y, a=self.alpha_, assortative=self.assortative)
         L_ = LinearOperator((n, n), matvec=mv, rmatvec=rmv)
 
@@ -154,7 +151,7 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         self.is_fitted_ = True
         return self
 
-    def _get_tuning_parameter(self, L, Y):
+    def _get_tuning_parameter(self, L: np.ndarray, Y: np.ndarray) -> "CovariateAssistedEmbed":
         """
         Find the alpha which causes the leading eigenspace of LL and YYt to be the same.
 
@@ -192,7 +189,13 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         return self
 
     @staticmethod
-    def _matvec(L, Y, a=None, assortative=True):
+    def _matvec(
+        L: np.ndarray, Y: np.ndarray, a: float, assortative: bool = True
+    ) -> Tuple[Callable, Callable]:
+        """
+        Defines matrix multiplication and matrix multiplication by transpose for the
+        LinearOperator object.
+        """
         if assortative:
             mv = lambda v: (L @ v) + a * (Y @ (Y.T @ v))
             rmv = lambda v: (v.T @ L) + a * ((v.T @ Y) @ Y.T)
