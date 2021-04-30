@@ -353,7 +353,11 @@ def heatmap(
 
 
 def binary_heatmap(
-    X, colors=["white", "black"], colorbar_ticklabels=["No Edge", "Edge"], **kwargs
+    X,
+    colors=["white", "black"],
+    colorbar_ticklabels=["No Edge", "Edge"],
+    outline=False,
+    **kwargs,
 ):
     """
     Plots an unweighted graph as a black-and-white matrix
@@ -371,6 +375,9 @@ def binary_heatmap(
 
     colorbar_ticklabels : list-like
         Binary labels to use in the colorbar.
+
+    lines : bool
+        If True, add lines to separate communities.
 
     **kwargs : dict, optional
         All keyword arguments in ``plot.heatmap``.
@@ -397,6 +404,9 @@ def binary_heatmap(
         colorbar.set_ticks([0.25, 0.75])
         colorbar.set_ticklabels(colorbar_ticklabels)
         colorbar.ax.set_frame_on(True)
+    if outline:
+        sns.despine(top=False, bottom=False, left=False, right=False)
+
     return ax
 
 
