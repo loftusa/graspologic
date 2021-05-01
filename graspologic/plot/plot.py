@@ -405,8 +405,8 @@ def binary_heatmap(
     ax = heatmap(X, center=None, cmap=cmap, **kwargs)
     if legend:
         fig = plt.gcf()
-        cax = fig.add_axes([0.95, 0.4, 0.05, 0.1])
-        colorbar = fig.colorbar(hmap.imshow(X, cmap=cmap), cax=cax)
+        cax = fig.add_axes([0.95, 0.4, 0.05, 0.2])
+        colorbar = fig.colorbar(ax.imshow(X, cmap=cmap), cax=cax)
         colorbar.set_ticks([0.25, 0.75])
         colorbar.set_ticklabels(colorbar_ticklabels)
         cax.set_frame_on(True)
