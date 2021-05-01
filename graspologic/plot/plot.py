@@ -356,7 +356,7 @@ def binary_heatmap(
     X,
     colors=["white", "black"],
     colorbar_ticklabels=["No Edge", "Edge"],
-    outline=False,
+    outline=True,
     legend=True,
     **kwargs,
 ):
@@ -401,9 +401,8 @@ def binary_heatmap(
 
     # cbar doesn't make sense in the binary case, use legend instead
     kwargs["cbar"] = False
-
     cmap = mpl.colors.ListedColormap(colors)
-    ax = heatmap(X, center=None, cmap=cmap, cbar=False, **kwargs)
+    ax = heatmap(X, center=None, cmap=cmap, **kwargs)
     if legend:
         car = plt.gcf().add_axes([0.95, 0.4, 0.05, 0.1])
         colorbar.set_ticks([0.25, 0.75])
