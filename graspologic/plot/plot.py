@@ -379,7 +379,7 @@ def binary_heatmap(
         Whether to add an outline around the border of the heatmap.
 
     legend : bool, default = True
-        If True, add a legend to the heatmap denoting which colors denote which 
+        If True, add a legend to the heatmap denoting which colors denote which
         ticklabels.
 
     **kwargs : dict, optional
@@ -405,7 +405,7 @@ def binary_heatmap(
     cmap = mpl.colors.ListedColormap(colors)
     ax = heatmap(X, center=None, cmap=cmap, cbar=False, **kwargs)
     if legend:
-        car = plt.gcf().add_axes([.95, 0.4, 0.05, 0.1])
+        car = plt.gcf().add_axes([0.95, 0.4, 0.05, 0.1])
         colorbar.set_ticks([0.25, 0.75])
         colorbar.set_ticklabels(colorbar_ticklabels)
         colorbar.ax.set_frame_on(True)
