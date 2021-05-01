@@ -357,13 +357,12 @@ def binary_heatmap(
     colors=["white", "black"],
     colorbar_ticklabels=["No Edge", "Edge"],
     outline=False,
+    legend=True,
     **kwargs,
 ):
     """
-    Plots an unweighted graph as a black-and-white matrix
-    with a binary colorbar.
-
-    Takes the same keyword arguments as ``plot.heatmap``.
+    Plots an unweighted graph as a black-and-white matrix with a binary colorbar.  Takes
+    the same keyword arguments as ``plot.heatmap``.
 
     Parameters
     ----------
@@ -376,8 +375,12 @@ def binary_heatmap(
     colorbar_ticklabels : list-like
         Binary labels to use in the colorbar.
 
-    lines : bool
-        If True, add lines to separate communities.
+    outline: bool, default = False
+        Whether to add an outline around the border of the heatmap.
+
+    legend : bool, default = True
+        If True, add a legend to the heatmap denoting which colors denote which 
+        ticklabels.
 
     **kwargs : dict, optional
         All keyword arguments in ``plot.heatmap``.
@@ -396,11 +399,13 @@ def binary_heatmap(
     ):
         raise ValueError("colorbar_ticklabels must be list-like and length 2.")
 
+    # cbar doesn't make sense in the binary case, use legend instead
+    kwargs["cbar"] = False
+
     cmap = mpl.colors.ListedColormap(colors)
-    ax = heatmap(X, center=None, cmap=cmap, **kwargs)
-    colorbar = ax.collections[0].colorbar
-    cbar = kwargs.setdefault("cbar", True)
-    if cbar:
+    ax = heatmap(X, center=None, cmap=cmap, cbar=False, **kwargs)
+    if legend:
+        car = plt.gcf().add_axes([.95, 0.4, 0.05, 0.1])
         colorbar.set_ticks([0.25, 0.75])
         colorbar.set_ticklabels(colorbar_ticklabels)
         colorbar.ax.set_frame_on(True)
