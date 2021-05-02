@@ -813,8 +813,6 @@ def _plot_ellipse_and_data(
 def pairplot_with_gmm(
     X,
     gmm,
-    covariance_type="full",
-    n_components=None,
     labels=None,
     cluster_palette="Set1",
     label_palette="Set1",
@@ -827,74 +825,60 @@ def pairplot_with_gmm(
     histplot_kws={},
 ):
     r"""
-     Plot pairwise relationships in a dataset, also showing a clustering predicted by
-     a Gaussian mixture model.
-
-     By default, this function will create a grid of axes such that each dimension
-     in data will by shared in the y-axis across a single row and in the x-axis
-     across a single column.
-
-     The off-diagonal axes show the pairwise relationships displayed as scatterplot.
-     The diagonal axes show the univariate distribution of the data for that
-     dimension displayed as either a histogram or kernel density estimates (KDEs).
-
-     Read more in the `Pairplot with GMM: Visualizing High Dimensional Data and
-     Clustering Tutorial
-     <https://microsoft.github.io/graspologic/tutorials/plotting/pairplot_with_gmm.html>`_
-
-     Parameters
-     ----------
-     X : array-like, shape (n_samples, n_features)
-         Input data.
-    covariance_type : str, default: 'full'
-        {‘full’, ‘tied’, ‘diag’, ‘spherical’}
-        String describing the type of covariance parameters to use. Must be one of:
-         ‘full’
-             each component has its own general covariance matrix
-         ‘tied’
-             all components share the same general covariance matrix
-         ‘diag’
-             each component has its own diagonal covariance matrix
-         ‘spherical’
-             each component has its own single variancee
-     n_components : int or None, default: None
-         Desired dimensionality of output data. If None, selects an embedding dimension.
-     labels : array-like or list, shape (n_samples), optional
-         Labels that correspond to each sample in ``X``.
-         If labels are not passed in then labels are predicted by ``gmm``.
-     label_palette : str or dict, optional, default: 'Set1'
-         Palette used to color points if ``labels`` are passed in.
-     cluster_palette : str or dict, optional, default: 'Set1'
-         Palette used to color GMM ellipses (and points if no ``labels`` are passed).
-     title : string, default: ""
-         Title of the plot.
-     legend_name : string, default: None
-         Name to put above the legend.
-         If ``None``, will be "Cluster" if no custom ``labels`` are passed, and ""
-         otherwise.
-     context :  None, or one of {talk (default), paper, notebook, poster}
-         Seaborn plotting context
-     font_scale : float, optional, default: 1
-         Separate scaling factor to independently scale the size of the font
-         elements.
-     alpha : float, optional, default: 0.7
-         Opacity value of plotter markers between 0 and 1
-     figsize : tuple
-         The size of the 2d subplots configuration
-     histplot_kws : dict, default: {}
-         Keyword arguments passed down to :func:`seaborn.histplot`
-
-     Returns
-     -------
-     fig : matplotlib Figure
-     axes : np.ndarray
-         Array of matplotlib Axes
-
-     See Also
-     --------
-     graspologic.plot.pairplot
-     graspologic.cluster.AutoGMMCluster
-     sklearn.mixture.GaussianMixture
+    Plot pairwise relationships in a dataset, also showing a clustering predicted by
+    a Gaussian mixture model.
+    By default, this function will create a grid of axes such that each dimension
+    in data will by shared in the y-axis across a single row and in the x-axis
+    across a single column.
+    The off-diagonal axes show the pairwise relationships displayed as scatterplot.
+    The diagonal axes show the univariate distribution of the data for that
+    dimension displayed as either a histogram or kernel density estimates (KDEs).
+    Read more in the `Pairplot with GMM: Visualizing High Dimensional Data and
+    Clustering Tutorial
+    <https://microsoft.github.io/graspologic/tutorials/plotting/pairplot_with_gmm.html>`_
+    Parameters
+    ----------
+    X : array-like, shape (n_samples, n_features)
+        Input data.
+    gmm: GaussianMixture object
+        A fit :class:`sklearn.mixture.GaussianMixture` object.
+        Gaussian mixture models (GMMs) are probabilistic models for representing data
+        based on normally distributed subpopulations, GMM clusters each data point into
+        a corresponding subpopulation.
+    labels : array-like or list, shape (n_samples), optional
+        Labels that correspond to each sample in ``X``.
+        If labels are not passed in then labels are predicted by ``gmm``.
+    label_palette : str or dict, optional, default: 'Set1'
+        Palette used to color points if ``labels`` are passed in.
+    cluster_palette : str or dict, optional, default: 'Set1'
+        Palette used to color GMM ellipses (and points if no ``labels`` are passed).
+    title : string, default: ""
+        Title of the plot.
+    legend_name : string, default: None
+        Name to put above the legend.
+        If ``None``, will be "Cluster" if no custom ``labels`` are passed, and ""
+        otherwise.
+    context :  None, or one of {talk (default), paper, notebook, poster}
+        Seaborn plotting context
+    font_scale : float, optional, default: 1
+        Separate scaling factor to independently scale the size of the font
+        elements.
+    alpha : float, optional, default: 0.7
+        Opacity value of plotter markers between 0 and 1
+    figsize : tuple
+        The size of the 2d subplots configuration
+    histplot_kws : dict, default: {}
+        Keyword arguments passed down to :func:`seaborn.histplot`
+    Returns
+    -------
+    fig : matplotlib Figure
+    axes : np.ndarray
+        Array of matplotlib Axes
+    See Also
+    --------
+    graspologic.plot.pairplot
+    graspologic.cluster.AutoGMMCluster
+    sklearn.mixture.GaussianMixture
     """
     # Handle X and labels
     if labels is not None:
@@ -905,14 +889,10 @@ def pairplot_with_gmm(
     else:
         # sets default if no custom labels passed
         legend_name = "Cluster"
-
-    if n_components is None:
-        elbows, _ = select_dimension(X, n_elbows=2, threshold=None)
-        n_components = elbows[-1]
-
-    gmm = GaussianMixture(
-        n_components=n_components, covariance_type=covariance_type
-    ).fit(X)
+    # Handle gmm
+    if gmm is None:
+        msg = "You must input a sklearn.mixture.GaussianMixture"
+        raise NameError(msg)
     Y_, means, covariances = gmm.predict(X), gmm.means_, gmm.covariances_
     data = pd.DataFrame(data=X)
     n_components = gmm.n_components
@@ -1035,117 +1015,6 @@ def pairplot_with_gmm(
         # legend in frame
         fig.subplots_adjust(right=0.85)
         return fig, axes
-
-
-def _distplot(
-    data,
-    labels=None,
-    direction="out",
-    title="",
-    context="talk",
-    font_scale=1,
-    figsize=(10, 5),
-    palette="Set1",
-    xlabel="",
-    ylabel="Density",
-):
-
-    plt.figure(figsize=figsize)
-    ax = plt.gca()
-    palette = sns.color_palette(palette)
-    plt_kws = {"cumulative": True}
-    with sns.plotting_context(context=context, font_scale=font_scale):
-        if labels is not None:
-            categories, counts = np.unique(labels, return_counts=True)
-            for i, cat in enumerate(categories):
-                cat_data = data[np.where(labels == cat)]
-                if counts[i] > 1 and cat_data.min() != cat_data.max():
-                    x = np.sort(cat_data)
-                    y = np.arange(len(x)) / float(len(x))
-                    plt.plot(x, y, label=cat, color=palette[i])
-                else:
-                    ax.axvline(cat_data[0], label=cat, color=palette[i])
-            plt.legend()
-        else:
-            if data.min() != data.max():
-                sns.histplot(data, hist=False, kde_kws=plt_kws)
-            else:
-                ax.axvline(data[0])
-
-        plt.title(title)
-        plt.xlabel(xlabel)
-        plt.ylabel(ylabel)
-
-    return ax
-
-
-def degreeplot(
-    X,
-    labels=None,
-    direction="out",
-    title="Degree plot",
-    context="talk",
-    font_scale=1,
-    figsize=(10, 5),
-    palette="Set1",
-):
-    r"""
-    Plots the distribution of node degrees for the input graph.
-    Allows for sets of node labels, will plot a distribution for each
-    node category.
-
-    Parameters
-    ----------
-    X : np.ndarray (2D)
-        input graph
-    labels : 1d np.ndarray or list, same length as dimensions of ``X``
-        Labels for different categories of graph nodes
-    direction : string, ('out', 'in')
-        Whether to plot out degree or in degree for a directed graph
-    title : string, default : 'Degree plot'
-        Plot title
-    context :  None, or one of {talk (default), paper, notebook, poster}
-        Seaborn plotting context
-    font_scale : float, optional, default: 1
-        Separate scaling factor to independently scale the size of the font
-        elements.
-    palette : str, dict, optional, default: 'Set1'
-        Set of colors for mapping the ``hue`` variable. If a dict, keys should
-        be values in the ``hue`` variable.
-        For acceptable string arguments, see the palette options at
-        :doc:`Choosing Colormaps in Matplotlib <tutorials/colors/colormaps>`.
-    figsize : tuple of length 2, default (10, 5)
-        Size of the figure (width, height)
-
-    Returns
-    -------
-    ax : matplotlib axis object
-        Output plot
-    """
-    _check_common_inputs(
-        figsize=figsize, title=title, context=context, font_scale=font_scale
-    )
-    check_array(X)
-    if direction == "out":
-        axis = 0
-        check_consistent_length((X, labels))
-    elif direction == "in":
-        axis = 1
-        check_consistent_length((X.T, labels))
-    else:
-        raise ValueError('direction must be either "out" or "in"')
-    degrees = np.count_nonzero(X, axis=axis)
-    ax = _distplot(
-        degrees,
-        labels=labels,
-        title=title,
-        context=context,
-        font_scale=font_scale,
-        figsize=figsize,
-        palette=palette,
-        xlabel="Node degree",
-    )
-    return ax
 
 
 def edgeplot(

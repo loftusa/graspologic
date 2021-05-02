@@ -119,7 +119,7 @@ def test_heatmap_inputs(plot_fun):
     # cbar
     with pytest.raises(TypeError):
         cbar = 1
-        plot_fun(X, cbar=cbar)
+        heatmap(X, cbar=cbar)
 
 
 @pytest.mark.parametrize("plot_fun", [heatmap, binary_heatmap])
