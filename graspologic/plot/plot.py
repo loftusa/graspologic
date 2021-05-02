@@ -1017,6 +1017,117 @@ def pairplot_with_gmm(
         return fig, axes
 
 
+def _distplot(
+    data,
+    labels=None,
+    direction="out",
+    title="",
+    context="talk",
+    font_scale=1,
+    figsize=(10, 5),
+    palette="Set1",
+    xlabel="",
+    ylabel="Density",
+):
+
+    plt.figure(figsize=figsize)
+    ax = plt.gca()
+    palette = sns.color_palette(palette)
+    plt_kws = {"cumulative": True}
+    with sns.plotting_context(context=context, font_scale=font_scale):
+        if labels is not None:
+            categories, counts = np.unique(labels, return_counts=True)
+            for i, cat in enumerate(categories):
+                cat_data = data[np.where(labels == cat)]
+                if counts[i] > 1 and cat_data.min() != cat_data.max():
+                    x = np.sort(cat_data)
+                    y = np.arange(len(x)) / float(len(x))
+                    plt.plot(x, y, label=cat, color=palette[i])
+                else:
+                    ax.axvline(cat_data[0], label=cat, color=palette[i])
+            plt.legend()
+        else:
+            if data.min() != data.max():
+                sns.histplot(data, hist=False, kde_kws=plt_kws)
+            else:
+                ax.axvline(data[0])
+
+        plt.title(title)
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+
+    return ax
+
+
+def degreeplot(
+    X,
+    labels=None,
+    direction="out",
+    title="Degree plot",
+    context="talk",
+    font_scale=1,
+    figsize=(10, 5),
+    palette="Set1",
+):
+    r"""
+    Plots the distribution of node degrees for the input graph.
+    Allows for sets of node labels, will plot a distribution for each
+    node category.
+
+    Parameters
+    ----------
+    X : np.ndarray (2D)
+        input graph
+    labels : 1d np.ndarray or list, same length as dimensions of ``X``
+        Labels for different categories of graph nodes
+    direction : string, ('out', 'in')
+        Whether to plot out degree or in degree for a directed graph
+    title : string, default : 'Degree plot'
+        Plot title
+    context :  None, or one of {talk (default), paper, notebook, poster}
+        Seaborn plotting context
+    font_scale : float, optional, default: 1
+        Separate scaling factor to independently scale the size of the font
+        elements.
+    palette : str, dict, optional, default: 'Set1'
+        Set of colors for mapping the ``hue`` variable. If a dict, keys should
+        be values in the ``hue`` variable.
+        For acceptable string arguments, see the palette options at
+        :doc:`Choosing Colormaps in Matplotlib <tutorials/colors/colormaps>`.
+    figsize : tuple of length 2, default (10, 5)
+        Size of the figure (width, height)
+
+    Returns
+    -------
+    ax : matplotlib axis object
+        Output plot
+    """
+    _check_common_inputs(
+        figsize=figsize, title=title, context=context, font_scale=font_scale
+    )
+    check_array(X)
+    if direction == "out":
+        axis = 0
+        check_consistent_length((X, labels))
+    elif direction == "in":
+        axis = 1
+        check_consistent_length((X.T, labels))
+    else:
+        raise ValueError('direction must be either "out" or "in"')
+    degrees = np.count_nonzero(X, axis=axis)
+    ax = _distplot(
+        degrees,
+        labels=labels,
+        title=title,
+        context=context,
+        font_scale=font_scale,
+        figsize=figsize,
+        palette=palette,
+        xlabel="Node degree",
+    )
+    return ax
+
+
 def edgeplot(
     X,
     labels=None,
