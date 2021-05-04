@@ -355,7 +355,7 @@ def heatmap(
 def binary_heatmap(
     X,
     colors=["white", "black"],
-    colorbar_ticklabels=["No Edge", "Edge"],
+    legend_labels=["No Edge", "Edge"],
     outline=True,
     legend=True,
     **kwargs,
@@ -372,15 +372,16 @@ def binary_heatmap(
     colors : list-like or np.ndarray
         A list of exactly two colors to use for the heatmap.
 
-    colorbar_ticklabels : list-like
-        Binary labels to use in the colorbar.
+    legend : bool, default = True
+        If True, add a legend to the heatmap denoting which colors denote which
+        ticklabels.
+
+    legend_labels : list-like
+        Binary labels to use in the legend. Not used if legend is False.
 
     outline: bool, default = False
         Whether to add an outline around the border of the heatmap.
 
-    legend : bool, default = True
-        If True, add a legend to the heatmap denoting which colors denote which
-        ticklabels.
 
     **kwargs : dict, optional
         All keyword arguments in ``plot.heatmap``.
@@ -394,9 +395,7 @@ def binary_heatmap(
         raise ValueError(
             "cmap is not allowed in a binary heatmap. To change colors, use the `colors` parameter."
         )
-    if not (
-        isinstance(colorbar_ticklabels, (list, tuple)) and len(colorbar_ticklabels) == 2
-    ):
+    if not (isinstance(legend_labels, (list, tuple)) and len(legend_labels) == 2):
         raise ValueError("colorbar_ticklabels must be list-like and length 2.")
 
     # cbar doesn't make sense in the binary case, use legend instead
@@ -404,12 +403,22 @@ def binary_heatmap(
     cmap = mpl.colors.ListedColormap(colors)
     ax = heatmap(X, center=None, cmap=cmap, **kwargs)
     if legend:
-        fig = plt.gcf()
-        cax = fig.add_axes([0.95, 0.4, 0.05, 0.2])
-        colorbar = fig.colorbar(ax.imshow(X, cmap=cmap), cax=cax)
-        colorbar.set_ticks([0.25, 0.75])
-        colorbar.set_ticklabels(colorbar_ticklabels)
-        cax.set_frame_on(True)
+        no_edge_patch = mpl.patches.Patch(
+            facecolor=colors[0], label=legend_labels[0], edgecolor="black"
+        )
+        edge_patch = mpl.patches.Patch(
+            facecolor=colors[1], label=legend_labels[1], edgecolor="black"
+        )
+        ax.legend(
+            [no_edge_patch, edge_patch],
+            legend_labels,
+            facecolor="white",
+            edgecolor="black",
+            framealpha=1,
+            bbox_to_anchor=(1.25, 0.5),
+            fontsize="x-large",
+            loc="center right",
+        )
     if outline:
         sns.despine(top=False, bottom=False, left=False, right=False)
 
