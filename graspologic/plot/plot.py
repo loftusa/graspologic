@@ -449,8 +449,7 @@ def gridplot(
     X : list of nx.Graph or np.ndarray object
         List of nx.Graph or numpy arrays to plot
     labels : list of str
-        List of strings, which are labels for each element in X.
-        ``len(X) == len(labels)``.
+        List of strings, which are labels for each element in X. ``len(X) == len(labels)``.
     transform : None, or string {'log', 'log10', 'zero-boost', 'simple-all', 'simple-nonzero'}
 
         - 'log'
@@ -836,6 +835,7 @@ def pairplot_with_gmm(
     Read more in the `Pairplot with GMM: Visualizing High Dimensional Data and
     Clustering Tutorial
     <https://microsoft.github.io/graspologic/tutorials/plotting/pairplot_with_gmm.html>`_
+
     Parameters
     ----------
     X : array-like, shape (n_samples, n_features)
@@ -869,6 +869,7 @@ def pairplot_with_gmm(
         The size of the 2d subplots configuration
     histplot_kws : dict, default: {}
         Keyword arguments passed down to :func:`seaborn.histplot`
+
     Returns
     -------
     fig : matplotlib Figure
