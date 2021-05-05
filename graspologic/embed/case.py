@@ -9,20 +9,19 @@ from graspologic.embed.base import BaseSpectralEmbed
 
 class CovariateAssistedEmbed(BaseSpectralEmbed):
     """
-    Perform Spectral Embedding on a graph with covariates for each node, using the
-    regularized graph Laplacian.
-
-    The Covariate-Assisted Spectral Embedding is a k-dimensional Euclidean representation
-    of a graph. It returns an n x d matrix, similarly to Adjacency Spectral Embedding or
-    Laplacian Spectral Embedding. For more information, see [1].
+    The Covariate-Assisted Spectral Embedding is a tabular representation of a graph
+    which has extra covariate information for each node. It returns an n x d matrix,
+    similarly to Adjacency Spectral Embedding or Laplacian Spectral Embedding.
 
     Parameters
     ----------
     alpha : float, optional, default = None
-        Tuning parameter to use:
-            -  None: Default to the ratio of the leading eigenvector of the Laplacian
-                     to the leading eigenvector of the covariate matrix.
-            - float: Use a particular alpha-value.
+        Tuning parameter. This is a value which lets you change how much information
+        the covariates contribute to the embedding. Higher values mean the covariates
+        contribute more information.
+            -  None: Use a weight which causes the covariates and the graph to contribute
+               the same amount of information to the embedding.
+            - float: Manually set the tuning parameter value.
 
     assortative : bool, default = True
         Embedding algorithm to use. An assortative network is any network where the
@@ -31,6 +30,12 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         tuning parameter alpha:
             - True: Embed ``L + a*Y@Y.T``. Better for assortative graphs.
             - False: Embed ``L@L + a*Y@Y.T``. Better for non-assortative graphs.
+
+    center_covariates: bool, default = True
+        Whether or not to center the columns of the covariates to have mean 0.
+
+    scale_covariates: bool, default = True
+        Whether or not to scale the columns of the covariates to have unit L2-norm.
 
     n_components : int or None, default = None
         Desired dimensionality of output data. If "full",
@@ -47,6 +52,18 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         results if the graph is unconnected. Not checking for connectedness may
         result in faster computation.
 
+    Notes
+    -----
+    Depending on the embedding algorithm, we embed
+
+        .. math:: L_ = LL + \alpha YY^T
+        .. math:: L_ = L + \alpha YY^T
+
+        where :math:`\alpha` is the tuning parameter which makes the leading eigenvalues
+        of the two summands the same. Here, :math:`L` is the regularized
+        graph Laplacian, and :math:`Y` is a matrix of covariates for each node.
+
+    For more information, see [1].
 
     References
     ---------
@@ -58,6 +75,8 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         self,
         alpha: Optional[float] = None,
         assortative: bool = True,
+        center_covariates: bool = True,
+        scale_covariates: bool = True,
         n_components: Optional[int] = None,
         n_elbows: int = 2,
         check_lcc: bool = False,
@@ -75,43 +94,31 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
             raise ValueError(msg)
         self.assortative = assortative
 
-        if not ((alpha is None) or isinstance(alpha, (float, int))):
-            msg = "alpha must be in {None, float, int}."
+        if not isinstance(alpha, (float, int, type(None))):
+            msg = "alpha's type must be in {None, float, int}."
             raise TypeError(msg)
 
         self.alpha = alpha
         self.latent_right_ = None
+        self._centered = center_covariates
+        self._scaled = scale_covariates
         self.is_fitted_ = False
 
     def fit(
-        self, network: Tuple[np.ndarray, np.ndarray], y: None = None
+        self, graph: np.ndarray, covariates: np.ndarray, y: None = None
     ) -> "CovariateAssistedEmbed":
         """
-        Fit a CASE model to an input graph, along with its covariates. Depending on the
-        embedding algorithm, we embed
-
-        .. math:: L_ = LL + \alpha YY^T
-        .. math:: L_ = L + \alpha YY^T
-
-        where :math:`\alpha` is a tuning parameter which makes the leading eigenvalues
-        of the two summands the same. Here, :math:`L` is the regularized
-        graph Laplacian, and :math:`Y` is a matrix of covariates for each node.
-
-        Covariates are row-normalized to unit l2-norm.
+        Fit a CASE model to an input graph, along with its covariates.
 
         Parameters
         ----------
-        network : tuple or list of np.ndarrays
-            Contains the tuple (A, Y), where A is an adjacency matrix and Y is the
-            matrix of covariates.
+        graph : array-like or networkx.Graph
+            Input graph to embed. See graspologic.utils.import_graph
 
-            A : array-like or networkx.Graph
-                Input graph to embed. See graspologic.utils.import_graph
-
-            Y : array-like, shape (n_vertices, n_covariates)
-                Covariate matrix. Each node of the graph is associated with a set of
-                `d` covariates. Row `i` of the covariates matrix corresponds to node
-                `i`, and the number of columns are the number of covariates.
+        covariates : array-like, shape (n_vertices, n_covariates)
+            Covariate matrix. Each node of the graph is associated with a set of
+            `d` covariates. Row `i` of the covariates matrix corresponds to node
+            `i`, and the number of columns are the number of covariates.
 
         y: Ignored
 
@@ -120,16 +127,7 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         self : object
             Returns an instance of self.
         """
-
         # setup
-        if not isinstance(network, (tuple, list)):
-            msg = "Network should be a tuple-like object of (graph, covariates)."
-            raise TypeError(msg)
-        if len(network) != 2:
-            msg = "Network should be a tuple-like object of (graph, covariates)."
-            raise ValueError(msg)
-
-        graph, covariates = network
         A = import_graph(graph)
 
         # Create regularized Laplacian, scale covariates to unit norm
@@ -137,7 +135,10 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         Y = covariates
         if Y.ndim == 1:
             Y = Y[:, np.newaxis]
-        Y = normalize(Y, axis=0)
+        if self._centered:
+            Y = scale(Y, with_std=False, axis=0)
+        if self._scaled:
+            Y = normalize(Y, axis=0)
 
         # Use ratio of the two leading eigenvalues if alpha is None
         self._get_tuning_parameter(L, Y)
@@ -153,23 +154,29 @@ class CovariateAssistedEmbed(BaseSpectralEmbed):
         self.is_fitted_ = True
         return self
 
+    def fit_transform(self, graph: np.ndarray, covariates: np.ndarray):
+        # Allows `for self.fit_transform(graph, covariates)` without needing keyword arguments.
+        return self._fit_transform(graph, covariates=covariates)
+
     def _get_tuning_parameter(
         self, L: np.ndarray, Y: np.ndarray
     ) -> "CovariateAssistedEmbed":
         """
         Find the alpha which causes the leading eigenspace of LL and YYt to be the same.
+        Saves that alpha as the class attribute ``self.alpha_``.
 
         Parameters
         ----------
-        L : array
-            The regularized graph Laplacian.
-        Y : array
-            The covariate matrix.
+        L : array, n x n
+            The regularized graph Laplacian, where ``n`` is the number of nodes.
+        Y : array, n x d
+            The covariate matrix, where ``n`` is the number of nodes and ``d`` is the
+             number of covariates.
 
         Returns
         -------
-        alpha : float
-            Tuning parameter which normalizes the leading eigenspace of LL and YYt.
+        self : object
+            Returns an instance of self.
         """
         # setup
         if self.alpha is not None:
